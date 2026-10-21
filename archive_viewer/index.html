@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Your Farcaster archive</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='10' fill='%23684bad'/%3E%3Ctext x='15' y='37' font-family='Georgia' font-size='42' fill='white'%3Ef%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to casts</a>
+  <aside class="sidebar">
+    <a href="#own" class="brand"><span class="brand-icon">f</span><span>Farcaster<span class="brand-sub">Your local archive</span></span></a>
+    <p class="account" id="account">Your archive</p>
+    <nav aria-label="Archive sections">
+      <a href="#own" data-view="own">Your casts <span id="own-count"></span></a>
+      <a href="#all" data-view="all">All saved casts <span id="all-count"></span></a>
+      <a href="#reactions" data-view="reactions">Likes &amp; recasts</a>
+      <a href="#quotes" data-view="quotes">Quoted casts</a>
+      <a href="#media" data-view="media">Media &amp; links</a>
+      <a href="#contacts" data-view="contacts">People &amp; contacts</a>
+      <a href="#exports" data-view="exports">Export files &amp; gaps</a>
+    </nav>
+    <div class="archive-note"><span class="status-dot"></span>Local · read only<p>Read from your saved exports.<br>Your original files stay unchanged.</p></div>
+  </aside>
+  <main id="content" tabindex="-1">
+    <header class="page-head">
+      <div class="eyebrow">PERSONAL ARCHIVE</div>
+      <h1 id="title">Your casts</h1>
+      <p id="subtitle">A scroll through your Farcaster history, oldest first.</p>
+      <div id="overview" class="overview"></div>
+    </header>
+    <form id="filters" class="filters" role="search">
+      <label class="search-label"><span class="sr-only">Search archive</span><input id="search" type="search" placeholder="Search text, people, or a cast hash…" autocomplete="off"></label>
+      <label id="order-label">Order<select id="order"><option value="asc">Oldest first</option><option value="desc">Newest first</option></select></label>
+      <label id="from-label">From<input id="from" type="date"></label>
+      <label id="to-label">Through<input id="to" type="date"></label>
+      <label id="relationship-label" hidden>People<select id="relationship"><option value="">Everyone</option><option value="following">People you follow</option><option value="followers">Your followers</option></select></label>
+      <label id="status-label" hidden>Files<select id="status"><option value="">All URLs</option><option value="downloaded">Saved locally</option><option value="unresolved">Unresolved</option><option value="non-media-link">Web links</option></select></label>
+      <label id="own-media-label" class="check-label" hidden><input id="own-media" type="checkbox">From your casts</label>
+      <button type="submit" class="apply">Search</button>
+    </form>
+    <div id="results-label" class="results-label" role="status" aria-live="polite"></div>
+    <div id="error" class="error" role="alert" hidden></div>
+    <section id="feed" aria-label="Archive results"></section>
+    <button id="more" class="load-more" hidden>Load more</button>
+    <div id="sentinel" aria-hidden="true"></div>
+    <footer>Read and review at your own pace. This viewer cannot delete casts.</footer>
+  </main>
+</body>
+</html>
