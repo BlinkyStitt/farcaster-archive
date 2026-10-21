@@ -1,38 +1,57 @@
-# Optional account deletion
+# Delete casts after export
 
-Export and inspect your archive first. Deletion removes every surviving cast and reply in the plan. It keeps local copies and cannot remove other authors’ casts or copies held by other parties.
+This deletes every surviving cast and reply in the backup plan. Local files remain.
 
-The current deletion flow supports a recovery phrase that derives the custody address at `m/44'/60'/0'/0/0`. It does not support hardware-wallet prompts, smart-contract custody signatures, other derivation paths, or hosted wallets without an exportable phrase. A mismatch stops before signing. Never enter recovery words in chat, a shell command, an issue, or a file. Use only the hidden local prompt.
+The recovery words must derive the custody address at `m/44'/60'/0'/0/0`. Hardware wallets, smart-contract custody, other derivation paths, and hosted wallets without exportable recovery words are not supported. Enter recovery words only at the hidden local prompt.
 
-## Official CLI
+## 1. Select the backup
 
-Deletion uses the official Rust `fc` client. Build the pinned source with Rust/Cargo, the upstream native build prerequisites, and `protoc`. Snapchain needs the adjacent Malachite checkout for its workspace path dependencies. Use a build directory outside this repository:
+Replace `12345` with the FID you exported:
 
 ```sh
-mkdir -p "$HOME/.cache/farcaster-cli"
-cd "$HOME/.cache/farcaster-cli"
-git clone https://github.com/farcasterxyz/snapchain.git snapchain
-git -C snapchain checkout --detach fc87f2686472598143062a00e1c2b2633b2d87ab
-git clone https://github.com/informalsystems/malachite.git malachite
-git -C malachite checkout --detach 13bca14cd209d985c3adf101a02924acde8723a5
-cargo build --locked --release --manifest-path snapchain/Cargo.toml -p fc-cli
-export FC_BIN="$PWD/snapchain/target/release/fc"
-export CLI_SOURCE="$PWD/snapchain"
-export MALACHITE_SOURCE="$PWD/malachite"
+cd "$HOME/farcaster-archive"
+. .venv/bin/activate
+export FID=12345
+export OUT="$HOME/Farcaster/fid$FID"
+export NEYNAR_KEY_FILE="$HOME/.config/neynar_api_key"
+export PYTHON_BIN="$PWD/.venv/bin/python"
+python -m pip install -r requirements-broadcast.txt
+./farcaster_cleanup_all.sh --verify-backup
 ```
 
-Do not substitute an arbitrary binary if the pinned build fails. Return to this tool’s checkout with FID, OUT, and PYTHON_BIN still set. Create the local build receipt:
+If this reports content gaps, review them in step 3. If it reports corrupt or missing backup files, stop and repair the backup.
+
+## 2. Build the official CLI
+
+Requires Rust/Cargo, C/C++ build tools, and `protoc`. This builds the pinned CLI outside the repository, creates `OUT/cli-build.json`, and runs its loopback signing tests. Run this block once after step 1:
 
 ```sh
-python - <<'PY'
+bash <<'BUILD'
+set -euo pipefail
+cargo --version
+protoc --version
+build="$HOME/.cache/farcaster-cli"
+mkdir -p "$build"
+git clone https://github.com/farcasterxyz/snapchain.git "$build/snapchain"
+git -C "$build/snapchain" checkout --detach fc87f2686472598143062a00e1c2b2633b2d87ab
+git clone https://github.com/informalsystems/malachite.git "$build/malachite"
+git -C "$build/malachite" checkout --detach 13bca14cd209d985c3adf101a02924acde8723a5
+CARGO_TARGET_DIR="$build/target" cargo build --locked --release \
+  --manifest-path "$build/snapchain/Cargo.toml" -p fc-cli
+export CLI_SOURCE="$build/snapchain"
+export MALACHITE_SOURCE="$build/malachite"
+export FC_BIN="$build/target/release/fc"
+"$PYTHON_BIN" - <<'PY'
 import hashlib, json, os, pathlib, subprocess
-source = pathlib.Path(os.environ['CLI_SOURCE'])
-malachite = pathlib.Path(os.environ['MALACHITE_SOURCE'])
+os.umask(0o077)
 revision = 'fc87f2686472598143062a00e1c2b2633b2d87ab'
 malachite_revision = '13bca14cd209d985c3adf101a02924acde8723a5'
-for folder, expected in ((source, revision), (malachite, malachite_revision)):
-    assert subprocess.check_output(['git', '-C', str(folder), 'rev-parse', 'HEAD'], text=True).strip() == expected
-    assert not subprocess.check_output(['git', '-C', str(folder), 'status', '--porcelain'], text=True).strip()
+for folder, expected in ((os.environ['CLI_SOURCE'], revision),
+                         (os.environ['MALACHITE_SOURCE'], malachite_revision)):
+    head = subprocess.check_output(['git', '-C', folder, 'rev-parse', 'HEAD'], text=True).strip()
+    dirty = subprocess.check_output(['git', '-C', folder, 'status', '--porcelain'], text=True).strip()
+    if head != expected or dirty:
+        raise SystemExit('CLI source differs from the pinned clean checkout')
 binary = pathlib.Path(os.environ['FC_BIN']).resolve()
 receipt = dict(revision=revision, malachite_revision=malachite_revision,
                binary=str(binary), sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
@@ -40,42 +59,112 @@ output = pathlib.Path(os.environ['OUT']) / 'cli-build.json'
 with output.open('x') as file:
     json.dump(receipt, file, indent=2)
 output.chmod(0o600)
+print('CLI receipt:', output)
 PY
-python -m pip install -r requirements-broadcast.txt
-FC_BIN="$FC_BIN" python -m unittest discover -s tests -p test_official_cli.py -v
+"$PYTHON_BIN" -m unittest discover -s tests -p test_official_cli.py -v
+BUILD
 ```
 
-These tests use public fixture keys and send only to loopback. They verify payloads and signatures, not live network acceptance.
-
-## Review and broadcast
-
-Run `./farcaster_cleanup_all.sh --verify-backup`. Inspect the viewer, `summary.json`, and `issues.json`. Corrupt files, missing authored records, inventory changes, and failed reaction history block deletion.
-
-A complete backup needs no gap receipt. For a partial backup, only `unresolved-embed`, `unavailable-cast`, `missing-parent`, and `neynar-conversation-unavailable` issues can receive explicit acceptance. The archive remains incomplete after acceptance.
-
-If you accept those exact recorded gaps, create `OUT/reviewed-backup.json` yourself with this schema. Use the selected snapshot’s actual FID, file hashes, and issue count:
-
-```json
-{
-  "schema": 1,
-  "fid": 12345,
-  "decision": "accept-recorded-content-gaps",
-  "manifest_sha256": "SHA256 of the selected snapshot manifest.json",
-  "issues_sha256": "SHA256 of that snapshot issues.json",
-  "issue_count": 1
-}
-```
-
-This example is not a valid receipt. Do not copy another account’s receipt or accept gaps you have not reviewed. The script never generates acceptance automatically. A new snapshot needs a new review; acceptance does not bypass integrity checks.
+The build folders must not already exist. For a later deletion session, reuse the saved receipt; do not rebuild. If you already set `FC_BIN` in your shell, unset it to use the receipt’s binary:
 
 ```sh
-./farcaster_cleanup_all.sh --broadcast
+unset FC_BIN
 ```
 
-The command checks every sealed file, account identity, archived versus live custody, distinct peers, all three inventories, and the CLI receipt before input. Type the exact `DELETE ALL <count> CASTS FOR FID <fid>` line. Then enter recovery words at the hidden second prompt if signer registration or renewal is needed.
+## 3. Review content gaps
 
-The phrase and derived custody key are not saved. A short-lived CLI child receives the phrase through its environment; processes with your OS privileges can inspect memory or the environment. Use a trusted local machine. The Ed25519 signer stays in `OUT/secrets/signer.json` with private permissions, CAST_REMOVE-only scope, and a 24-hour TTL. Keep that private directory for resumption.
+Skip this step if backup verification passed without gaps. Otherwise, inspect the selected snapshot:
 
-Each signed payload and submission intent is saved before one protocol POST. The first deletion must propagate to both peers before the second. Every later deletion receives the same check. Final inventories must contain zero authored casts on both peers and Neynar.
+```sh
+SNAPSHOT="$(python -c 'import json,os,pathlib; r=pathlib.Path(os.environ["OUT"]); print(r/json.loads((r/"snapshot.json").read_text())["path"])')"
+python -m json.tool "$SNAPSHOT/summary.json"
+python -m json.tool "$SNAPSHOT/issues.json" | less
+```
 
-If a submission is uncertain, do not remove journals or launch parallel copies. Check both nodes. A later run with the same OUT can confirm an attempted write, but never automatically resubmits that journal. A rejected or missing write can require manual investigation. The output lock prevents parallel runs. Changed custody or new unarchived casts require a new backup and review.
+Press **Q** to leave `less`. Only missing media, unavailable casts or conversations, and missing parents can receive acceptance. The archive stays marked incomplete.
+
+After reading the gaps, run this block. It calculates the receipt from the selected snapshot and asks for explicit acceptance through your terminal:
+
+```sh
+python - <<'PY'
+import collections, hashlib, json, os
+from pathlib import Path
+os.umask(0o077)
+root = Path(os.environ['OUT']).expanduser().resolve()
+fid = int(os.environ['FID'])
+pointer = json.loads((root / 'snapshot.json').read_text())
+snapshot = (root / pointer['path']).resolve()
+if not snapshot.is_relative_to(root / 'snapshots'):
+    raise SystemExit('Invalid snapshot path')
+manifest_hash = hashlib.sha256((snapshot / 'manifest.json').read_bytes()).hexdigest()
+if manifest_hash != pointer['manifest_sha256']:
+    raise SystemExit('Snapshot manifest changed')
+manifest = json.loads((snapshot / 'manifest.json').read_text())
+for name in ('summary.json', 'issues.json'):
+    if hashlib.sha256((snapshot / name).read_bytes()).hexdigest() != manifest['files'].get(name):
+        raise SystemExit(f'Backup checksum mismatch: {name}')
+summary = json.loads((snapshot / 'summary.json').read_text())
+if summary['fid'] != fid:
+    raise SystemExit('Snapshot belongs to another FID')
+if summary['complete']:
+    raise SystemExit('Backup is complete; no gap acceptance is needed')
+issues_bytes = (snapshot / 'issues.json').read_bytes()
+issues = json.loads(issues_bytes)
+allowed = {'unresolved-embed', 'unavailable-cast', 'missing-parent',
+           'neynar-conversation-unavailable'}
+if not issues or any(item.get('kind') not in allowed for item in issues):
+    raise SystemExit('Critical or unclassified gaps block deletion')
+print('Snapshot:', snapshot)
+print('Manifest:', manifest_hash)
+print('Gaps:', dict(collections.Counter(item['kind'] for item in issues)))
+confirmation = f'ACCEPT GAPS FOR FID {fid}'
+with open('/dev/tty', 'w') as tty:
+    tty.write(f'Type {confirmation} to accept these recorded gaps: ')
+    tty.flush()
+with open('/dev/tty', 'r') as tty:
+    if tty.readline().strip() != confirmation:
+        raise SystemExit('No acceptance recorded')
+receipt = dict(schema=1, fid=fid, decision='accept-recorded-content-gaps',
+               manifest_sha256=manifest_hash,
+               issues_sha256=hashlib.sha256(issues_bytes).hexdigest(), issue_count=len(issues))
+output = root / 'reviewed-backup.json'
+temporary = root / 'reviewed-backup.json.partial'
+temporary.write_text(json.dumps(receipt, indent=2) + '\n')
+temporary.chmod(0o600)
+temporary.replace(output)
+print('Saved:', output)
+PY
+```
+
+The broadcast command still checks every backup file. Acceptance applies only to this snapshot and these recorded gaps.
+
+## 4. Delete
+
+```sh
+cd "$HOME/farcaster-archive"
+FID=12345 OUT="$HOME/Farcaster/fid12345" \
+  NEYNAR_KEY_FILE="$HOME/.config/neynar_api_key" \
+  PYTHON_BIN="$PWD/.venv/bin/python" \
+  ./farcaster_cleanup_all.sh --broadcast
+```
+
+Replace `12345` in both places. The prompt appears after backup and network checks:
+
+1. Type the exact `DELETE ALL <count> CASTS FOR FID <fid>` line shown.
+2. Enter the custody recovery words at the hidden prompt if signer registration or renewal is needed.
+
+The command verifies each deletion on two distinct peers, then requires zero casts in both peers’ and Neynar’s inventories. The phrase and custody key are not saved. A short-lived CLI process receives the phrase through its environment; use a trusted machine. Keep `OUT/secrets/signer.json` private for resumption.
+
+## 5. Check completion or resume
+
+In a new Bash terminal, replace `12345` with the same FID:
+
+```sh
+export FID=12345
+export OUT="$HOME/Farcaster/fid$FID"
+python3 -m json.tool "$OUT/state/fid$FID/complete.json"
+```
+
+Successful completion records `deleted_count` and `source_counts: [0, 0, 0]`. If `complete.json` is absent, read the last terminal error. To resume after an interruption, repeat step 4 with the same OUT. Do not remove submission journals or run parallel copies.
+
+An uncertain submission stops without automatic resubmission. If it does not propagate to both nodes, stop and investigate. Changed custody or new unarchived casts require a new backup.
