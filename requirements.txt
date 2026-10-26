@@ -2,5 +2,5 @@
 grpcio==1.76.0
 protobuf==7.36.2
 blake3==1.0.8
-cryptography==46.0.3
+cryptography==50.0.2
 httpx==0.28.1
