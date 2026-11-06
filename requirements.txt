@@ -1,6 +1,6 @@
 # Archive reads and local protocol verification. No signing package is required.
-grpcio==1.76.0
+grpcio==1.85.0
 protobuf==7.36.2
-blake3==1.0.8
+blake3==1.0.11
 cryptography==50.0.2
 httpx==0.28.1
