@@ -1,2 +1,2 @@
 -r requirements-broadcast.txt
-ruff==0.14.1
+ruff==0.17.6
